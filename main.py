@@ -1,68 +1,15 @@
-import json
-import os
-import uuid
-from dotenv import load_dotenv
-from aiogram import Bot, types, Dispatcher
-from aiogram.utils import executor
-import redis
-import hashlib
-import random
 import requests
 import jmespath
-from datetime import datetime as dt
-from aiogram import types
-from aiogram.types import InlineQuery, InputTextMessageContent, InlineQueryResultArticle
-import constants
+import json
+from aiogram import Bot, types
+from aiogram.dispatcher import Dispatcher
+import aiogram.utils.markdown as fmt
+from aiogram.utils import executor
+import datetime as dt
+import random
 
-load_dotenv("var.env")
-TOKEN = os.getenv('TELEGRAM_TOKEN')
-r = redis.Redis(host=os.getenv('REDIS_HOST'),
-                password=os.getenv('REDIS_PASSWORD'),
-                decode_responses=True, db=0)
-bot = Bot(token=TOKEN, parse_mode=types.ParseMode.HTML)
-dp = Dispatcher(bot)
-ex_temp_array = 6000
-ex_event = 20000
 
-abb_array = ["MTL",
-             None,
-             None,
-             None,
-             "TOR",
-             "BOS",
-             None,
-             None,
-             None,
-             "NYR",
-             "CHI",
-             "DET",
-             None,
-             "LAK",
-             "DAL",
-             "PHI",
-             "PIT",
-             "STL",
-             "BUF",
-             "VAN",
-             "CGY",
-             "NYI",
-             "NJD",
-             "WSH",
-             "EDM",
-             "CAR",
-             "COL",
-             "ARI",
-             "SJS",
-             "OTT",
-             "TBL",
-             "ANA",
-             "FLA",
-             "NSH",
-             "WPG",
-             "CBJ",
-             "MIN",
-             "VGK",
-             "SEA"]
+TOKEN = '6029510223:AAGRPrBqvX47ggV6XsU2BtQIVZ0rqMZtu6I'
 
 teams = [{"team_name": "New Jersey Devils", "team_id": 1, "fr_id": 23, "abb": "NJD"},
          {"team_name": "New York Islanders", "team_id": 2, "fr_id": 22, "abb": "NYI"},
@@ -98,32 +45,47 @@ teams = [{"team_name": "New Jersey Devils", "team_id": 1, "fr_id": 23, "abb": "N
          {"team_name": "Seattle Kraken", "team_id": 55, "fr_id": 39, "abb": "SEA"}]
 
 
-def get_last_games(id):
-    url = 'https://statsapi.web.nhl.com/api/v1/schedule?site=en_nhl&startDate=2023-02-01&endDate=2023-02-28&teamId=' + str(
-        id) + '&expand=schedule.teams,schedule.venue,schedule.metadata,schedule.game.seriesSummary,schedule.ticket,schedule.broadcasts.all,schedule.linescore,schedule.decisions,schedule.game.content.media.epg'
+bot = Bot(token=TOKEN, parse_mode=types.ParseMode.HTML)
+dp = Dispatcher(bot)
+
+
+def abbr(team_id):
+    return next(filter(lambda a: a['team_id'] == team_id, teams))['abb']
+
+
+def date_diff(days):
+    return dt.datetime.fromisoformat(str(dt.datetime.date(dt.datetime.now() - dt.timedelta(days)))).strftime('%Y-%m-%d')
+
+
+def get_last_games(team_id):
+    url = 'https://statsapi.web.nhl.com/api/v1/schedule?site=en_nhl&startDate=' + date_diff(15) + '&endDate='+ dt.datetime.now().strftime('%Y-%m-%d') +'&teamId=' + str(
+        team_id) + '&expand=schedule.teams,schedule.venue,schedule.metadata,schedule.game.seriesSummary,schedule.ticket,schedule.broadcasts.all,schedule.linescore,schedule.decisions,schedule.game.content.media.epg'
+    print(url)
     querystring = {}
     payload = ""
-    response = requests.request("GET", url, data=payload, params=querystring, timeout=2)
+    response = api_request(url)
     games = jmespath.search(
-        "dates[].games[].{awayabb: teams.away.team.abbreviation, homeabb: teams.home.team.abbreviation,homeid: teams.home.team.id, awayid: teams.away.team.id, gamestate: status.detailedState, date: gameDate, home: teams.home.team.name, homescore: teams.home.score, awayscore: teams.away.score, away: teams.away.team.name}",
-        json.loads(response.text))
+        'dates[].games[].{image: content.media.epg[2].items[0].image.cuts."1136x640".src, link: content.media.epg[2].items[0].playbacks[4].url, awayabb: teams.away.team.abbreviation, homeabb: teams.home.team.abbreviation,homeid: teams.home.team.id, awayid: teams.away.team.id, gamestate: status.detailedState, date: gameDate, home: teams.home.team.name, homescore: teams.home.score, awayscore: teams.away.score, away: teams.away.team.name}',
+        json.loads(response))
     final_games = ""
-    print(games)
     for game in games:
         if game['gamestate'] == "Final":
-            final_games = final_games + game['homeabb'] + " " + str(game['homescore']) + "-" + str(
-                game['awayscore']) + " " + game['awayabb'] + "\n"
-    print(final_games)
-    return final_games
+            final_games = final_games + "<code>" +game['homeabb'] + " " + str(game['homescore']) + "-" + str(
+                game['awayscore']) + " " + game['awayabb'] + "</code> <a href='" + game['link']+"'>  🎦</a>\n"
 
-
-def abb(id):
-    return abb_array[int(id) - 1]
+    image = games[len(games)-1]['image']
+    if image is None:
+        # image = 'https://tagban.ru/assets/img/tgb_no image.png'
+        games[len(games) - 2]['image']
+        if image is None:
+            image = 'https://tagban.ru/assets/img/tgb_no image.png'
+    export_with_image = final_games + "@" + image
+    return export_with_image
 
 
 def api_request(url):
     try:
-        response = requests.get(url, timeout=2)
+        response = requests.get(url, timeout=5)
         response.raise_for_status()
     except requests.exceptions.Timeout as e:
         # Обработка ошибки тайм-аута
@@ -138,20 +100,43 @@ def api_request(url):
         print("Request exception:", e)
     else:
         # Обработка успешного запроса
-        print("Successful response:", response.text)
+        #print("Successful response:", response.text)
         return response.text
 
 
 async def set_default_commands(dp):
     await dp.bot.set_my_commands([
-        # types.BotCommand("start", "Start"),
-        types.BotCommand("teams", "Команды")
+        #types.BotCommand("start", "Start"),
+        types.BotCommand("teams", "Информация по командам"),
+        types.BotCommand("games", "Игры последнего дня"),
+        types.BotCommand("standings", "Ситуация по конференциям")
     ])
 
 
-@dp.message_handler(commands=['debug'])
+@dp.message_handler(commands=['start'])
 async def handler_debug(message: types.Message):
-    get_last_games(6)
+    await message.answer("Этот бот выдает лучших игроков и последние сыгранные матчи выбранной команды по запросу /teams.\n\nИногда серверы NHL отвечают долго. В этом случае просто отправьте запрос заново.")
+    print(message.from_user.id)
+    await bot.send_message(chat_id=5167284381, text="Начата работа с ботом")
+
+
+@dp.message_handler(commands=['standings'])
+async def handler_standings(message: types.Message):
+    await message.delete()
+    standings_str = ""
+    standings = api_request('https://statsapi.web.nhl.com/api/v1/standings/byConference')
+    standings_jmes = jmespath.search(
+        'records[].{name: conference.name, standings: teamRecords[]. {name:team.name, wins: leagueRecord.wins, losses: leagueRecord.losses, ot: leagueRecord.ot, place: conferenceRank}}',
+        json.loads(standings))
+    print(standings_jmes)
+    for conference in standings_jmes:
+        print(conference['name'])
+        standings_str = standings_str + "\n" + conference['name'] + "\n"
+        for team in conference['standings']:
+            print(team['place'], team['name'], team['wins'], team['losses'], team['ot'])
+            standings_str = standings_str + str(team['place']) + ". <b>" + team['name'] + "</b> [" + str(team['wins']) + "-" + str(team['losses']) + "-" + str(team['ot']) + "]\n"
+    await message.answer(standings_str)
+    await bot.send_message(chat_id=5167284381, text="Запрос положения в конфе")
 
 
 @dp.message_handler(commands=['teams'])
@@ -168,6 +153,8 @@ async def handler_teams(message: types.Message):
     keyboard = types.InlineKeyboardMarkup(row_width=4)
     keyboard.add(*teams_kb)
     await message.answer("Выберите из списка", reply_markup=keyboard)
+    print("+")
+    await bot.send_message(chat_id=5167284381, text="Запрос команд")
 
 
 @dp.callback_query_handler(lambda call: call.data.startswith("TEAM"))
@@ -181,19 +168,52 @@ async def handler_team(call: types.CallbackQuery):
     response = api_request(url)
     leaders_list = ""
     if response.startswith("HTTPS"):
-        await call.message.edit_text("Ошибка соединения с сервером. Попробуйте еще раз.")
+        # await call.message.edit_text("Сервер NHL отвечает слишком долго. Попробуйте еще раз.\n\n/teams")
+        teams_kb = []
+        keyboard = types.InlineKeyboardMarkup(row_width=4)
+        teams_kb.append(types.InlineKeyboardButton(text="Повторить запрос: " + call.data.split(":")[3],
+                                                   callback_data=call.data.split(":")[0] + ":" + call.data.split(":")[1] + ":" + call.data.split(":")[2] + ":" + call.data.split(":")[3] + ":" + call.data.split(":")[4]))
+        keyboard.add(*teams_kb)
+        await call.message.edit_text(text="Сервер NHL отвечает слишком долго. Попробуйте еще раз.", reply_markup=keyboard)
     else:
         for leader in json.loads(response)['data']:
-            leaders_list = leaders_list + leader['lastName'] + " [" + str(leader['goals']) + "-" + str(
-                leader['assists']) + "-" + str(leader['points']) + "]\n"
-        await call.message.edit_text(
+            leaders_list = leaders_list + leader['lastName'] + " " + str(leader['points']) + " (" + str(
+                leader['goals']) + "+" + str(leader['assists']) + ")\n"
+        last_games = get_last_games(team_id).split("@")
+        final_message = "Лидеры <b>" + call.data.split(":")[
+                4] + " [" + call.data.split(":")[
+                3] + "]</b>\n\n" + leaders_list + "\nПоследние игры:\n\n" + last_games[0] + ""
+        await call.message.delete()
+        await call.message.answer_photo(photo=last_games[1], caption=final_message)
+        '''await call.message.edit_text(
             "Лидеры <b>" + call.data.split(":")[
                 4] + " [" + call.data.split(":")[
-                3] + "]</b>\n\n" + leaders_list + "\nПоследние игры:\n\n<code>" + get_last_games(team_id) + "</code>")
+                3] + "]</b>\n\n" + leaders_list + "\nПоследние игры:\n\n" + get_last_games(team_id) + "" + fmt.hide_link('https://cms.nhl.bamgrid.com/images/photos/340820602/1704x960/cut.jpg'))'''
+    await bot.send_message(chat_id=5167284381, text="Запрос " + call.data.split(":")[3])
 
+
+@dp.message_handler(commands=['games'])
+async def handler_games(message: types.Message):
+    await message.delete()
+    yesterday = date_diff(1)
+    url = 'https://statsapi.web.nhl.com/api/v1/schedule?&date=' + yesterday + '&expand=schedule.game.content.media.epg'
+    response = api_request(url)
+    images = []
+    latest_games_json = jmespath.search(
+        'dates[].games[].{gamestate: status.detailedState, image: content.media.epg[2].items[0].image.cuts."1136x640".src, homeid: teams.home.team.id, awayid: teams.away.team.id, highlights: content.media.epg[2].items[0].playbacks[4].url, date: gameDate, status: status.statusCode, home: teams.home.team.name, away: teams.away.team.name, homescore: teams.home.score, awayscore: teams.away.score}',
+        json.loads(response))
+    final_games = ""
+    for game in latest_games_json:
+        if game['image'] is not None:
+            images.append(game['image'])
+        if game['gamestate'] == "Final":
+            final_games = final_games + "<code>" + abbr(game['homeid']) + " " + str(game['homescore']) + "-" + str(
+                game['awayscore']) + " " + abbr(game['awayid']) + "</code> <a href='" + game['highlights']+"'>  🎦</a>\n"
+    await message.answer_photo(photo=images[random.randrange(0, len(images)-1)], caption="Игры за <code>" + date_diff(1) + "</code>\n\n" + final_games)
+    await bot.send_message(chat_id=5167284381, text="Запрос игр")
 
 if __name__ == '__main__':
     # print(redis.client_info())
-    print('Started ' + str(dt.now()), flush=True)
+    print('Started ' + str(dt.datetime.now()), flush=True)
     # executor.start_polling(dp, skip_updates=True)
     executor.start_polling(dp, on_startup=set_default_commands)
