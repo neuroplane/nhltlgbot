@@ -64,23 +64,19 @@ def get_last_games(team_id):
     querystring = {}
     payload = ""
     response = api_request(url)
+    images = []
     games = jmespath.search(
         'dates[].games[].{image: content.media.epg[2].items[0].image.cuts."1136x640".src, link: content.media.epg[2].items[0].playbacks[4].url, awayabb: teams.away.team.abbreviation, homeabb: teams.home.team.abbreviation,homeid: teams.home.team.id, awayid: teams.away.team.id, gamestate: status.detailedState, date: gameDate, home: teams.home.team.name, homescore: teams.home.score, awayscore: teams.away.score, away: teams.away.team.name}',
         json.loads(response))
     final_games = ""
     for game in games:
+        if game['image'] is not None:
+            images.append(game['image'])
         if game['gamestate'] == "Final":
             final_games = final_games + "<code>" +game['homeabb'] + " " + str(game['homescore']) + "-" + str(
                 game['awayscore']) + " " + game['awayabb'] + "</code> <a href='" + game['link']+"'>  🎦</a>\n"
-
-    image = games[len(games)-1]['image']
-    if image is None:
-        # image = 'https://tagban.ru/assets/img/tgb_no image.png'
-        games[len(games) - 2]['image']
-        if image is None:
-            image = 'https://tagban.ru/assets/img/tgb_no image.png'
-    export_with_image = final_games + "@" + image
-    return export_with_image
+    print(len(images), images)
+    return final_games + "@" + images[random.randrange(0, len(images)-1)]
 
 
 def api_request(url):
